@@ -70,19 +70,38 @@ export function FrameRenderer({
       ? Math.min(containerSize.w / canvas.width, containerSize.h / canvas.height)
       : 0;
 
+  // 중앙 정렬은 절대 배치 + 미리 축소된 래퍼로 처리한다. flex justify-center
+  // 만으로는 자식 자연 크기가 부모를 넘칠 때 일부 브라우저가 한쪽으로 밀어 보이는
+  // 현상이 있어 가로가 긴 프레임이 우측 편향됐던 적이 있다.
+  const scaledW = canvas.width * scale;
+  const scaledH = canvas.height * scale;
+
   return (
-    <div ref={containerRef} className="relative flex h-full w-full items-center justify-center overflow-hidden">
+    <div ref={containerRef} className="relative h-full w-full overflow-hidden">
       {scale > 0 && (
         <div
-          className="relative shadow-2xl shadow-black/40"
+          className="absolute shadow-2xl shadow-black/40"
           style={{
-            width: canvas.width,
-            height: canvas.height,
+            width: scaledW,
+            height: scaledH,
+            left: '50%',
+            top: '50%',
+            marginLeft: -scaledW / 2,
+            marginTop: -scaledH / 2,
             background: canvas.background ?? '#ffffff',
-            transform: `scale(${scale})`,
-            transformOrigin: 'center center',
           }}
         >
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: canvas.width,
+              height: canvas.height,
+              transform: `scale(${scale})`,
+              transformOrigin: 'top left',
+            }}
+          >
           {renderOps.map((op) => {
             const isCamSlot = op.op === 'takeCamera';
             const isActive = isCamSlot && op.id === activeSlotId;
@@ -133,6 +152,7 @@ export function FrameRenderer({
               </div>
             );
           })}
+          </div>
         </div>
       )}
     </div>
