@@ -224,8 +224,8 @@ export function VisitorPage() {
         progress={`${filledCount}/${total}`}
         onAbort={resetToSelect}
       >
-        <div className="flex h-full flex-col">
-          <div className="relative flex-1 bg-black">
+        <div className="flex h-full min-h-0 min-w-0 flex-col">
+          <div className="relative min-h-0 min-w-0 flex-1 bg-black">
             <FrameRenderer
               preset={loaded.preset}
               operations={loaded.resolvedOperations}
@@ -338,19 +338,21 @@ function SelectView({
   useEffect(() => () => urls.forEach((u) => URL.revokeObjectURL(u)), [urls]);
 
   return (
-    <div className="min-h-full bg-neutral-950 p-6 text-neutral-100">
-      <div className="mx-auto max-w-5xl">
-        <header className="mb-8 text-center">
+    <div className="flex h-full flex-col overflow-hidden bg-neutral-950 text-neutral-100">
+      <div className="mx-auto flex h-full w-full max-w-5xl flex-col p-6">
+        <header className="mb-6 shrink-0 text-center">
           <h1 className="text-3xl font-bold">프레임을 골라주세요</h1>
           <p className="mt-2 text-neutral-400">원하는 프레임을 탭하면 촬영이 시작됩니다.</p>
         </header>
 
         {error && (
-          <div className="mb-4 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+          <div className="mb-4 shrink-0 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
             {error}
           </div>
         )}
 
+        {/* 그리드 영역만 자체적으로 overflow-auto — 페이지 viewport 는 잠겨 있다. */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
         {presets === null ? (
           <p className="text-center text-neutral-500">불러오는 중…</p>
         ) : presets.length === 0 ? (
@@ -393,8 +395,9 @@ function SelectView({
             ))}
           </ul>
         )}
+        </div>
 
-        <div className="mt-10 text-center">
+        <div className="mt-4 shrink-0 text-center">
           <Link to="/operator" className="text-xs text-neutral-600 hover:text-neutral-400">
             운영자 모드
           </Link>
@@ -435,15 +438,15 @@ function PreviewView({
       title={`${loaded.preset.meta.name} — 미리보기`}
       onAbort={onAbort}
     >
-      <div className="flex h-full flex-col lg:flex-row">
-        <div className="flex flex-1 items-center justify-center bg-black p-4">
+      <div className="flex h-full min-h-0 min-w-0 flex-col lg:flex-row">
+        <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-black p-4">
           <img
             src={compositeUrl}
             alt="합성 결과"
             className="max-h-full max-w-full object-contain shadow-2xl shadow-black/50"
           />
         </div>
-        <aside className="flex w-full flex-col gap-4 border-t border-neutral-800 bg-neutral-950 p-6 lg:w-96 lg:border-l lg:border-t-0">
+        <aside className="flex w-full shrink-0 flex-col gap-4 overflow-y-auto border-t border-neutral-800 bg-neutral-950 p-6 lg:w-96 lg:border-l lg:border-t-0">
           <label className="block">
             <span className="text-sm font-medium text-neutral-300">이름</span>
             <input

@@ -75,9 +75,9 @@ export function OperatorPage() {
   };
 
   return (
-    <div className="min-h-full bg-neutral-950 p-6 text-neutral-100">
-      <div className="mx-auto max-w-5xl">
-        <header className="mb-6 flex items-center justify-between gap-4">
+    <div className="flex h-full flex-col overflow-hidden bg-neutral-950 text-neutral-100">
+      <div className="mx-auto flex h-full w-full max-w-5xl flex-col p-6">
+        <header className="mb-6 flex shrink-0 items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold">운영자 — 프레임 관리</h1>
             <p className="mt-1 text-sm text-neutral-400">
@@ -97,7 +97,7 @@ export function OperatorPage() {
           </Link>
         </header>
 
-        <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="mb-4 flex shrink-0 flex-wrap items-center gap-2">
           <input
             ref={fileInputRef}
             type="file"
@@ -121,11 +121,14 @@ export function OperatorPage() {
         </div>
 
         {error && (
-          <div className="mb-4 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+          <div className="mb-4 shrink-0 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
             {error}
           </div>
         )}
 
+        {/* 운영자도 가급적 한 화면에 — 3~4개 가정에선 안 잘리고, 더 많이 올리면
+            이 영역만 스크롤된다 (viewport 자체는 잠겨 있음). */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
         {loading ? (
           <p className="text-sm text-neutral-500">불러오는 중…</p>
         ) : presets.length === 0 ? (
@@ -167,6 +170,7 @@ export function OperatorPage() {
             })}
           </ul>
         )}
+        </div>
       </div>
     </div>
   );

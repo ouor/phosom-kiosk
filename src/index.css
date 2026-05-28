@@ -4,6 +4,9 @@ html,
 body,
 #root {
   height: 100%;
+  /* 키오스크는 절대 viewport 스크롤이 생기지 않도록. 페이지 내부에서 필요한
+     경우에만 명시적으로 overflow-auto 영역을 둔다. */
+  overflow: hidden;
 }
 
 body {
