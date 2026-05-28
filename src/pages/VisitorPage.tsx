@@ -15,7 +15,8 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+// 방문자 화면에서는 라우터 네비게이션 노출 자체를 안 한다 — 운영자 모드 진입은
+// 부스 외부에서 URL 로만.
 
 import { FrameRenderer } from '../components/FrameRenderer';
 import type { WebcamSlotHandle } from '../components/WebcamSlot';
@@ -324,8 +325,6 @@ function SelectView({
   onPick: (p: StoredPreset) => void;
   error: string | null;
 }) {
-  const navigate = useNavigate();
-
   const urls = useMemo(() => {
     const map = new Map<string, string>();
     if (presets) {
@@ -357,15 +356,7 @@ function SelectView({
           <p className="text-center text-neutral-500">불러오는 중…</p>
         ) : presets.length === 0 ? (
           <div className="rounded-xl border border-dashed border-neutral-700 p-12 text-center text-neutral-400">
-            등록된 프레임이 없어요.
-            <button
-              type="button"
-              onClick={() => navigate('/operator')}
-              className="ml-2 text-emerald-400 underline underline-offset-2"
-            >
-              운영자 모드
-            </button>
-            에서 추가해 주세요.
+            아직 준비된 프레임이 없어요. 운영자에게 문의해 주세요.
           </div>
         ) : (
           <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
@@ -395,12 +386,6 @@ function SelectView({
             ))}
           </ul>
         )}
-        </div>
-
-        <div className="mt-4 shrink-0 text-center">
-          <Link to="/operator" className="text-xs text-neutral-600 hover:text-neutral-400">
-            운영자 모드
-          </Link>
         </div>
       </div>
     </div>
