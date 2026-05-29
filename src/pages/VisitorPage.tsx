@@ -40,6 +40,9 @@ type View = 'select' | 'capture' | 'preview' | 'submitting' | 'tracking';
 const STORAGE_KEY = 'photo-kiosk.active-job';
 type StoredJob = { id: string; name: string };
 
+// 촬영 카운트다운 한 단계당 표시 시간(ms). 3 → 2 → 1 각 단계마다 한 번씩.
+const COUNTDOWN_TICK_MS = 800;
+
 function loadStoredJob(): StoredJob | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -69,6 +72,9 @@ export function VisitorPage() {
   const [requesterName, setRequesterName] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // 촬영 카운트다운. null = 비활성. 3 → 2 → 1 순으로 줄다가 0 에서 실제 촬영.
+  const [countdown, setCountdown] = useState<number | null>(null);
+
   const webcamRef = useRef<WebcamSlotHandle>(null);
 
   // unmount 시 정리에 쓰는 최신 값 미러. state 만 deps 로 쓰면 매번 cleanup 이
@@ -94,6 +100,21 @@ export function VisitorPage() {
     };
   }, []);
 
+  // 카운트다운 진행 — 1 틱마다 줄이고, 0 에 닿으면 실제 촬영을 트리거한다.
+  // deps 가 countdown 하나라 0 도달 시 capture 는 정확히 한 번만 호출된다.
+  useEffect(() => {
+    if (countdown === null) return;
+    if (countdown === 0) {
+      webcamRef.current?.capture();
+      setCountdown(null);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setCountdown((c) => (c === null ? null : c - 1));
+    }, COUNTDOWN_TICK_MS);
+    return () => clearTimeout(timer);
+  }, [countdown]);
+
   const onSelectFrame = useCallback(async (preset: StoredPreset) => {
     setErrorMsg(null);
     // 기존 로드된 게 있으면 정리
@@ -114,6 +135,7 @@ export function VisitorPage() {
   }, [loaded, fills]);
 
   const resetToSelect = useCallback(() => {
+    setCountdown(null);
     if (loaded) revokeLoaded(loaded);
     fills.forEach((url) => URL.revokeObjectURL(url));
     setLoaded(null);
@@ -166,9 +188,14 @@ export function VisitorPage() {
     [fills, loaded, slots],
   );
 
-  const onCapture = () => webcamRef.current?.capture();
+  // 촬영 버튼 → 즉시 찍지 않고 3·2·1 카운트다운을 시작한다 (0 도달 시 effect 가 촬영).
+  const onCapture = () => {
+    if (countdown !== null || !activeSlotId) return;
+    setCountdown(3);
+  };
 
   const onRetakeAll = () => {
+    setCountdown(null);
     fills.forEach((url) => URL.revokeObjectURL(url));
     setFills(new Map());
     setActiveSlotId(slots[0]?.id ?? null);
@@ -236,6 +263,7 @@ export function VisitorPage() {
               onActivateSlot={(id) => setActiveSlotId(id)}
               onFillSlot={onFillSlot}
             />
+            {countdown !== null && countdown > 0 && <CountdownOverlay value={countdown} />}
           </div>
           <div className="flex items-center justify-between gap-3 border-t border-neutral-800 bg-neutral-950 p-4">
             <button
@@ -249,10 +277,15 @@ export function VisitorPage() {
             <button
               type="button"
               onClick={onCapture}
-              disabled={!activeSlotId}
+              disabled={!activeSlotId || countdown !== null}
               className="rounded-full bg-rose-500 px-10 py-5 text-xl font-bold text-white shadow-lg hover:bg-rose-400 disabled:opacity-40"
             >
-              📸 {currentIdx >= 0 ? `${currentIdx + 1}번째 촬영` : '촬영'}
+              📸{' '}
+              {countdown !== null
+                ? '촬영 준비…'
+                : currentIdx >= 0
+                ? `${currentIdx + 1}번째 촬영`
+                : '촬영'}
             </button>
             <div className="w-[120px]" />
           </div>
@@ -282,6 +315,26 @@ export function VisitorPage() {
 }
 
 // ── 화면 컴포넌트들 ──────────────────────────────────────────────────────
+
+// 카메라 프리뷰 위에 겹쳐지는 촬영 카운트다운 숫자. key={value} 로 매 틱마다
+// 다시 마운트되어 pop 애니메이션이 재생된다.
+function CountdownOverlay({ value }: { value: number }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/30">
+      <span
+        key={value}
+        className="font-black leading-none text-white"
+        style={{
+          fontSize: '40vmin',
+          textShadow: '0 4px 32px rgba(0,0,0,0.6)',
+          animation: `countdown-pop ${COUNTDOWN_TICK_MS}ms ease-out`,
+        }}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
 
 function KioskShell({
   title,
