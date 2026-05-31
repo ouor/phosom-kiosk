@@ -20,13 +20,20 @@ import {
   putPreset,
   type StoredPreset,
 } from '../lib/db';
+import { loadPrintMode, savePrintMode, type PrintMode } from '../lib/settings';
 
 export function OperatorPage() {
   const [presets, setPresets] = useState<StoredPreset[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [printMode, setPrintMode] = useState<PrintMode>(() => loadPrintMode());
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const onChangeMode = (mode: PrintMode) => {
+    savePrintMode(mode);
+    setPrintMode(mode);
+  };
 
   const refresh = useCallback(async () => {
     const all = await listPresets();
@@ -96,6 +103,24 @@ export function OperatorPage() {
             방문자 모드 시작 →
           </Link>
         </header>
+
+        <fieldset className="mb-4 shrink-0 rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+          <legend className="px-2 text-sm font-semibold text-neutral-300">인쇄 모드</legend>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <ModeOption
+              checked={printMode === 'auto'}
+              onChange={() => onChangeMode('auto')}
+              title="완전 인쇄 모드"
+              desc="제출하면 바로 인쇄됩니다. 감사 화면만 뜨고 별도 상태 확인 없음."
+            />
+            <ModeOption
+              checked={printMode === 'queue'}
+              onChange={() => onChangeMode('queue')}
+              title="큐 삽입 모드"
+              desc="감사 화면에 QR 코드가 표시됩니다. 방문자가 폰으로 스캔해 인쇄 상태를 확인할 수 있어요."
+            />
+          </div>
+        </fieldset>
 
         <div className="mb-4 flex shrink-0 flex-wrap items-center gap-2">
           <input
@@ -173,6 +198,41 @@ export function OperatorPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function ModeOption({
+  checked,
+  onChange,
+  title,
+  desc,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  title: string;
+  desc: string;
+}) {
+  return (
+    <label
+      className={
+        'flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition ' +
+        (checked
+          ? 'border-emerald-500/60 bg-emerald-500/10'
+          : 'border-neutral-700 hover:bg-neutral-800/60')
+      }
+    >
+      <input
+        type="radio"
+        name="print-mode"
+        checked={checked}
+        onChange={onChange}
+        className="mt-1 h-4 w-4 accent-emerald-500"
+      />
+      <span className="flex flex-col gap-0.5 text-left">
+        <span className="text-sm font-semibold text-neutral-100">{title}</span>
+        <span className="text-xs text-neutral-400">{desc}</span>
+      </span>
+    </label>
   );
 }
 

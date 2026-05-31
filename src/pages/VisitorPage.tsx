@@ -1,12 +1,15 @@
 // 방문자 모드 — 부스에 걸린 태블릿에서 반복 사용되는 화면.
 //
 // 흐름:
-//   select   → 캐시된 프레임 썸네일 그리드 (탭하면 capture 진입)
-//   capture  → FrameRenderer + 큰 촬영 버튼. 슬롯 순서대로 자동 진행.
-//   preview  → 합성된 PNG + 이름 입력 + "인쇄 요청" 버튼
-//   tracking → /api/jobs/{id} 폴링. DONE 도달 시 "처음으로" 버튼.
+//   select     → 캐시된 프레임 썸네일 그리드 (탭하면 capture 진입)
+//   capture    → FrameRenderer + 큰 촬영 버튼. 슬롯 순서대로 자동 진행.
+//   preview    → 합성된 PNG + 이름 입력 + "인쇄 요청" 버튼
+//   submitting → POST /api/jobs 진행 중
+//   thanks     → "인쇄 요청됐어요!" 감사 화면. 모드에 따라 QR 노출 후
+//                자동으로 select 복귀. 키오스크 자체는 폴링을 하지 않는다.
 //
-// 새로고침 보호: tracking 단계의 job 정보를 localStorage 에 저장 → 마운트 시 복원.
+// 상태 폴링은 별도 페이지 /track/:jobId 에서만 수행 — queue 모드의 QR 이 거기로
+// 방문자 휴대폰을 보낸다. 키오스크는 다음 방문자를 위해 즉시 비워진다.
 
 import {
   useCallback,
@@ -15,8 +18,8 @@ import {
   useRef,
   useState,
 } from 'react';
-// 방문자 화면에서는 라우터 네비게이션 노출 자체를 안 한다 — 운영자 모드 진입은
-// 부스 외부에서 URL 로만.
+
+import { QRCodeSVG } from 'qrcode.react';
 
 import { FrameRenderer } from '../components/FrameRenderer';
 import type { WebcamSlotHandle } from '../components/WebcamSlot';
@@ -26,44 +29,28 @@ import { getCameraSlots } from '../lib/operations';
 import { loadPresetFromBlob, revokeLoaded, type LoadedPreset } from '../lib/preset';
 import {
   createJob,
-  getJob,
-  isTerminal,
   normalizeForPrint,
   PrintApiError,
-  userPhase,
-  type JobStatus,
-  type UserPhase,
 } from '../lib/printApi';
+import { loadPrintMode, type PrintMode } from '../lib/settings';
 
-type View = 'select' | 'capture' | 'preview' | 'submitting' | 'tracking';
-
-const STORAGE_KEY = 'photo-kiosk.active-job';
-type StoredJob = { id: string; name: string };
+type View = 'select' | 'capture' | 'preview' | 'submitting' | 'thanks';
 
 // 촬영 카운트다운 한 단계당 표시 시간(ms). 3 → 2 → 1 각 단계마다 한 번씩.
 const COUNTDOWN_TICK_MS = 800;
 
-function loadStoredJob(): StoredJob | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as StoredJob) : null;
-  } catch {
-    return null;
-  }
-}
-function persistStoredJob(j: StoredJob | null) {
-  if (j) localStorage.setItem(STORAGE_KEY, JSON.stringify(j));
-  else localStorage.removeItem(STORAGE_KEY);
-}
+// 감사 화면이 자동으로 닫히기까지의 시간. queue 모드는 QR 읽을 시간을 위해 더 길게.
+const THANKS_AUTO_RETURN_MS_AUTO = 4000;
+const THANKS_AUTO_RETURN_MS_QUEUE = 20000;
+
+type ThanksJob = { id: string; name: string; mode: PrintMode };
 
 export function VisitorPage() {
   const [presets, setPresets] = useState<StoredPreset[] | null>(null);
 
-  // tracking 복원 — 새로고침해도 job 진행 상태 유지.
-  const [view, setView] = useState<View>(() =>
-    loadStoredJob() ? 'tracking' : 'select',
-  );
-  const [trackedJob, setTrackedJob] = useState<StoredJob | null>(() => loadStoredJob());
+  // 키오스크는 새로고침 = 처음부터 — 진행 중인 job 을 끌고 다니지 않는다.
+  const [view, setView] = useState<View>('select');
+  const [thanksJob, setThanksJob] = useState<ThanksJob | null>(null);
 
   const [loaded, setLoaded] = useState<LoadedPreset | null>(null);
   const [fills, setFills] = useState<Map<string, string>>(new Map());
@@ -144,8 +131,7 @@ export function VisitorPage() {
     setComposite(null);
     setRequesterName('');
     setErrorMsg(null);
-    persistStoredJob(null);
-    setTrackedJob(null);
+    setThanksJob(null);
     setView('select');
   }, [loaded, fills]);
 
@@ -214,10 +200,10 @@ export function VisitorPage() {
         idempotencyKey: crypto.randomUUID(),
         image: file,
       });
-      const stored: StoredJob = { id: job.id, name: requesterName.trim() };
-      persistStoredJob(stored);
-      setTrackedJob(stored);
-      setView('tracking');
+      // 운영자 설정에 따라 감사 화면이 QR 을 함께 보여줄지 결정. 모드는 제출 시점에
+      // 한 번 읽어 thanksJob 에 박는다 — 화면 도중에 운영자가 바꿔도 일관 유지.
+      setThanksJob({ id: job.id, name: requesterName.trim(), mode: loadPrintMode() });
+      setView('thanks');
     } catch (e) {
       console.error(e);
       const msg = e instanceof PrintApiError ? e.message : '인쇄 요청에 실패했어요.';
@@ -228,8 +214,8 @@ export function VisitorPage() {
 
   // ── 단계별 렌더 ──────────────────────────────────────────────────────────
 
-  if (view === 'tracking' && trackedJob) {
-    return <Tracker job={trackedJob} onDone={resetToSelect} />;
+  if (view === 'thanks' && thanksJob) {
+    return <ThanksView job={thanksJob} onDone={resetToSelect} />;
   }
 
   if (view === 'select') {
@@ -531,93 +517,73 @@ function PreviewView({
   );
 }
 
-function Tracker({
+/**
+ * 인쇄 요청이 접수됐다는 사실만 보여주고 자동으로 select 로 복귀한다.
+ *
+ * - `auto` 모드: 텍스트 메시지만. 짧은 카운트다운(4초) 후 자동 이동.
+ * - `queue` 모드: 같은 메시지 + 인쇄 상태를 확인할 수 있는 QR 코드.
+ *   방문자가 자기 폰으로 스캔하면 /track/:jobId 로 진입해 폴링을 본다.
+ *   QR 을 읽을 시간을 주기 위해 자동 이동까지 20초.
+ *
+ * "지금 끝내기" 버튼이 있어 다음 방문자가 기다리고 있으면 바로 비울 수 있다.
+ */
+function ThanksView({
   job,
   onDone,
 }: {
-  job: StoredJob;
+  job: ThanksJob;
   onDone: () => void;
 }) {
-  const [status, setStatus] = useState<JobStatus | null>(null);
-  const [pollError, setPollError] = useState<string | null>(null);
+  const autoMs =
+    job.mode === 'queue' ? THANKS_AUTO_RETURN_MS_QUEUE : THANKS_AUTO_RETURN_MS_AUTO;
+  const [remaining, setRemaining] = useState(Math.ceil(autoMs / 1000));
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
 
   useEffect(() => {
-    let cancelled = false;
-    let timer: number | undefined;
-    const tick = async () => {
-      try {
-        const j = await getJob(job.id);
-        if (cancelled) return;
-        setStatus(j.status);
-        setPollError(null);
-        if (isTerminal(j.status)) return;
-      } catch (e) {
-        if (cancelled) return;
-        setPollError(e instanceof PrintApiError ? e.message : '상태를 가져오지 못했어요.');
-      }
-      timer = window.setTimeout(tick, 2500);
-    };
-    void tick();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [job.id]);
+    if (remaining <= 0) {
+      onDoneRef.current();
+      return;
+    }
+    const t = window.setTimeout(() => setRemaining((r) => r - 1), 1000);
+    return () => clearTimeout(t);
+  }, [remaining]);
 
-  const phase: UserPhase | null = status ? userPhase(status) : null;
-  const isDone = !!status && isTerminal(status);
+  // QR 은 같은 origin 의 /track/:id 로 — 키오스크가 어떤 도메인에 떠 있든 따라간다.
+  const trackUrl = `${window.location.origin}/track/${encodeURIComponent(job.id)}`;
 
   return (
-    <KioskShell title="인쇄 요청 진행 중" onAbort={!isDone ? onDone : undefined}>
+    <KioskShell title="인쇄 요청 접수">
       <div className="flex h-full items-center justify-center bg-neutral-950 p-6">
-        <div className="w-full max-w-md rounded-2xl border border-neutral-800 bg-neutral-900 p-6 text-center">
-          <p className="text-sm text-neutral-400">요청자</p>
-          <p className="mt-1 text-2xl font-semibold text-neutral-100">{job.name}</p>
-
-          <div
-            className={
-              'mt-6 rounded-xl border px-5 py-6 ' +
-              (phase === 'done'
-                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
-                : phase === 'progress'
-                ? 'border-blue-500/40 bg-blue-500/10 text-blue-200'
-                : 'border-amber-500/40 bg-amber-500/10 text-amber-200')
-            }
-          >
-            <p className="text-lg font-bold">
-              {phase === 'done' ? '출력 완료' : phase === 'progress' ? '출력 중' : '대기 중'}
-            </p>
-            <p className="mt-1 text-sm">
-              {phase === 'done'
-                ? '출력물을 받아가세요.'
-                : phase === 'progress'
-                ? '잠시만 기다려 주세요.'
-                : '순서를 기다리는 중입니다.'}
-            </p>
+        <div className="w-full max-w-xl rounded-2xl border border-emerald-500/30 bg-neutral-900 p-8 text-center shadow-2xl shadow-emerald-500/10">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20 text-3xl">
+            ✓
           </div>
+          <h1 className="mt-4 text-2xl font-bold text-emerald-200">인쇄 요청됐어요!</h1>
+          <p className="mt-2 text-sm text-neutral-400">
+            <span className="font-semibold text-neutral-200">{job.name}</span> 님의 사진이
+            인쇄 대기열에 올라갔습니다.
+          </p>
 
-          {pollError && (
-            <p className="mt-3 text-xs text-red-400">{pollError}</p>
+          {job.mode === 'queue' && (
+            <div className="mt-6 flex flex-col items-center gap-3">
+              <div className="rounded-xl bg-white p-4">
+                <QRCodeSVG value={trackUrl} size={180} level="M" />
+              </div>
+              <p className="text-sm text-neutral-300">
+                폰으로 QR 을 스캔하면 인쇄 상태를 볼 수 있어요.
+              </p>
+              <p className="break-all text-xs text-neutral-500">{trackUrl}</p>
+            </div>
           )}
 
-          {isDone && (
-            <button
-              type="button"
-              onClick={onDone}
-              className="mt-6 w-full rounded-lg bg-emerald-500 px-4 py-3 text-base font-semibold text-emerald-950 hover:bg-emerald-400"
-            >
-              처음으로
-            </button>
-          )}
-          {!isDone && (
-            <button
-              type="button"
-              onClick={onDone}
-              className="mt-6 w-full rounded-lg border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:bg-neutral-800"
-            >
-              새로 시작 (이번 요청은 계속 처리됨)
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onDone}
+            className="mt-8 w-full rounded-lg bg-emerald-500 px-4 py-3 text-base font-semibold text-emerald-950 hover:bg-emerald-400"
+          >
+            지금 끝내기 ({remaining}초 후 자동)
+          </button>
         </div>
       </div>
     </KioskShell>
